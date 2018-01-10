@@ -1,9 +1,11 @@
 package logruzio
 
 import (
+	"fmt"
 	"io"
 	"net"
 
+	"github.com/cenkalti/backoff"
 	"github.com/sirupsen/logrus"
 )
 
@@ -71,7 +73,8 @@ func (h *Hook) Fire(entry *logrus.Entry) error {
 	}
 
 	if _, err = h.hookOpts.Conn.Write(dataBytes); err != nil {
-		return err
+		//If you can't write to a connection, it may be broken
+		h.RetryConn()
 	}
 
 	return nil
@@ -87,4 +90,22 @@ func (h *Hook) Levels() []logrus.Level {
 		logrus.InfoLevel,
 		logrus.DebugLevel,
 	}
+}
+
+// RetryConn attempts to recreate Hook's connection
+func (h *Hook) RetryConn() {
+	operation := func() error {
+		var err error
+		h.hookOpts.Conn, err = net.Dial(proto, endpoint)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	err := backoff.Retry(operation, backoff.NewExponentialBackOff())
+	if err != nil {
+		fmt.Println("Exceeded maximum total time for logz.io connection retries")
+	}
+
 }
